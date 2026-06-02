@@ -174,7 +174,7 @@ body {
 
 /* ===== GAME BOARD ===== */
 .game-root {
-  width: 100vw; min-height: 100vh; overflow-x: hidden;
+  width: 100vw; height: 100vh; overflow-x: hidden; overflow-y: auto;
   display: flex; flex-direction: column;
   background-color: var(--bg);
   background-image: url('/game-bg.jpg');
@@ -186,7 +186,6 @@ body {
 @keyframes gameEnter {
   from { opacity: 0; transform: scale(1.05); }
   to { opacity: 1; transform: scale(1); }
-  to   { opacity: 1; transform: scale(1); }
 }
 
 .game-header {
@@ -203,7 +202,7 @@ body {
   background: rgba(0,0,0,0.2); padding: 5px 10px;
   border-radius: 6px; border: 1px solid var(--border);
 }
-.game-body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px 20px; overflow: hidden; }
+.game-body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px 20px; }
 .opponents-row { display: flex; justify-content: center; gap: 16px; flex-shrink: 0; }
 .center-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .deck-pile-row { display: flex; align-items: center; gap: 16px; }

@@ -423,10 +423,117 @@ function reducer(state, action) {
       return doSeeingSwap(state, state.currentPlayerIdx, state.ctx.ownC, state.ctx.oppIdx, state.ctx.oppC, payload.doSwap);
     }
 
-    case 'AI_TURN': {
+    case 'SKIP_TURN': {
+      let ts = { ...state };
+      if (ts.drawn) { ts.pile = [...ts.pile, ts.drawn.card]; ts.drawn = null; }
+      return endTurn({ ...ts, step: 'idle', ctx: {}, msg: `⏰ Turn skipped due to timeout!` });
+    }
+
+    case 'BOT_START': {
       const cur = state.players[state.currentPlayerIdx];
       if (!cur?.isAI || state.step !== 'idle' || !['play','cabo'].includes(state.phase)) return state;
-      return aiTurn(state);
+      const unknownCnt = cur.known.filter(k => !k).length;
+      const knownScore = cur.hand.reduce((s, c, i) => cur.known[i] ? s + cardValue(c) : s, 0);
+      if (state.caboBy === null && unknownCnt === 0 && knownScore <= 14) {
+         return { ...state, step: 'bot_cabo', msg: `${cur.name} is thinking...` };
+      }
+      return { ...state, step: 'bot_draw', msg: `${cur.name} is thinking...` };
+    }
+
+    case 'BOT_DRAW': {
+      const cur = state.players[state.currentPlayerIdx];
+      if (state.step === 'bot_cabo') return callCabo(state);
+      if (state.step !== 'bot_draw') return state;
+
+      const pileTop = state.pile.length > 0 ? state.pile[state.pile.length - 1] : null;
+      let drawnCard, drawnFrom, nd = [...state.deck], np = [...state.pile];
+      if (pileTop && cardValue(pileTop) <= 0) {
+        drawnCard = pileTop; drawnFrom = 'pile'; np = state.pile.slice(0, -1);
+      } else {
+        if (nd.length === 0) {
+          if (np.length <= 1) return endTurn(state);
+          const top = np[np.length - 1];
+          nd = shuffle(np.slice(0, -1)); np = [top];
+        }
+        drawnCard = nd[0]; drawnFrom = 'deck'; nd = nd.slice(1);
+      }
+      return {
+        ...state, deck: nd, pile: np, drawn: { card: drawnCard, from: drawnFrom },
+        step: 'bot_action', msg: `${cur.name} drew a card from the ${drawnFrom}.`
+      };
+    }
+
+    case 'BOT_ACTION': {
+      if (state.step !== 'bot_action' || !state.drawn) return state;
+      const me = state.players[state.currentPlayerIdx];
+      const { card: drawnCard, from: drawnFrom } = state.drawn;
+      const power = drawnFrom === 'pile' ? 'swap' : cardPower(drawnCard, state.rules);
+      let ts = { ...state, msg: '' };
+      
+      if (power === 'swap' || power === 'king') {
+        const dv = cardValue(drawnCard);
+        let bestIdx = -1, bestVal = dv;
+        for (let i = 0; i < 6; i++) {
+          if (me.known[i] && cardValue(me.hand[i]) > bestVal) { bestVal = cardValue(me.hand[i]); bestIdx = i; }
+        }
+        if (bestIdx >= 0) {
+           ts.ctx = { botSwap: bestIdx }; ts.msg = `${me.name} is swapping with their card ${bestIdx + 1}...`;
+           return { ...ts, step: 'bot_end' };
+        }
+        if (drawnFrom === 'pile') {
+          const ui = me.known.findIndex(k => !k);
+          ts.ctx = { botSwap: ui >= 0 ? ui : 0 }; ts.msg = `${me.name} is swapping with an unknown card...`;
+          return { ...ts, step: 'bot_end' };
+        }
+        if (power === 'king' && drawnCard.suit === '♦') {
+          let wi = -1, wv = 1;
+          for (let i = 0; i < 6; i++) if (me.known[i] && cardValue(me.hand[i]) > wv) { wv = cardValue(me.hand[i]); wi = i; }
+          if (wi >= 0) {
+             ts.ctx = { botSwap: wi }; ts.msg = `${me.name} uses King to swap!`;
+             return { ...ts, step: 'bot_end' };
+          }
+        }
+        ts.ctx = { botDiscard: true }; ts.msg = `${me.name} decided to discard the card.`;
+        return { ...ts, step: 'bot_end' };
+      }
+
+      if (power === 'peekOwn') {
+        const ui = me.known.findIndex(k => !k);
+        ts.ctx = { botPeek: ui >= 0 ? ui : 0 }; ts.msg = `${me.name} is peeking at their own card...`;
+        return { ...ts, step: 'bot_end' };
+      }
+
+      if (power === 'peekOpp') {
+        ts.ctx = { botDiscard: true }; ts.msg = `${me.name} peeked at an opponent's card (discarded the draw).`;
+        return { ...ts, step: 'bot_end' };
+      }
+
+      if (power === 'blindSwap' || power === 'seeingSwap') {
+        let wi = 0, wv = -99;
+        for (let i = 0; i < 6; i++) if (me.known[i] && cardValue(me.hand[i]) > wv) { wv = cardValue(me.hand[i]); wi = i; }
+        const oppIdx = (state.currentPlayerIdx + 1) % state.players.length;
+        ts.ctx = { botBlindSwapOwn: wi, botBlindSwapOpp: oppIdx, botBlindSwapOppCard: 0 };
+        ts.msg = `${me.name} uses ${power} to swap cards!`;
+        return { ...ts, step: 'bot_end' };
+      }
+      
+      ts.ctx = { botDiscard: true }; ts.msg = `${me.name} discarded the card.`;
+      return { ...ts, step: 'bot_end' };
+    }
+
+    case 'BOT_END': {
+      if (state.step !== 'bot_end' || !state.drawn) return state;
+      const { ctx, drawn, currentPlayerIdx: cIdx } = state;
+      let ts = { ...state, ctx: {} };
+      if (ctx.botSwap !== undefined) return swapHandCard(ts, drawn.card, cIdx, ctx.botSwap);
+      if (ctx.botPeek !== undefined) {
+         const pl = cp(ts.players); pl[cIdx].known[ctx.botPeek] = true;
+         return endTurn({ ...ts, players: pl, pile: [...ts.pile, drawn.card], drawn: null });
+      }
+      if (ctx.botBlindSwapOwn !== undefined) {
+         return doBlindSwap(ts, cIdx, ctx.botBlindSwapOwn, ctx.botBlindSwapOpp, ctx.botBlindSwapOppCard);
+      }
+      return endTurn({ ...ts, pile: [...ts.pile, drawn.card], drawn: null });
     }
 
     case 'PLAY_AGAIN': return INIT;
@@ -437,10 +544,10 @@ function reducer(state, action) {
 // ─────────────────────────────────────────────
 // CARD COMPONENT
 // ─────────────────────────────────────────────
-function CardComp({ card, faceUp, onClick, selected, sm }) {
+function CardComp({ card, faceUp, onClick, selected, sm, botTarget }) {
   const red = isRed(card);
   const joker = card?.rank === 'JOKER';
-  const cls = ['card-wrap', sm && 'sm', onClick && 'clickable', selected && 'selected'].filter(Boolean).join(' ');
+  const cls = ['card-wrap', sm && 'sm', onClick && 'clickable', selected && 'selected', botTarget && 'bot-target'].filter(Boolean).join(' ');
   return (
     <div className={cls} onClick={onClick}>
       <div className={`card-inner${faceUp ? ' face-up' : ''}`}>
@@ -474,7 +581,7 @@ function CardComp({ card, faceUp, onClick, selected, sm }) {
 // ─────────────────────────────────────────────
 // PLAYER AREA
 // ─────────────────────────────────────────────
-function PlayerArea({ player, isActive, isCabo, onCardClick, selectables, revealed, sm }) {
+function PlayerArea({ player, isActive, isCabo, onCardClick, selectables, revealed, sm, botTargets }) {
   const revSet = new Set((revealed || []).map(r => r.cardIdx));
   const cls = ['player-area', isActive && 'is-active', isCabo && 'cabo-caller'].filter(Boolean).join(' ');
   return (
@@ -495,6 +602,7 @@ function PlayerArea({ player, isActive, isCabo, onCardClick, selectables, reveal
               faceUp={faceUp}
               sm={sm}
               selected={selectable}
+              botTarget={botTargets?.includes(idx)}
               onClick={selectable ? () => onCardClick(idx) : undefined}
             />
           );
@@ -848,9 +956,34 @@ function RevealScreen({ state, dispatch }) {
 // ─────────────────────────────────────────────
 function GameBoard({ state, dispatch }) {
   const { players, deck, pile, currentPlayerIdx, drawn, step, ctx, caboBy, reveals, msg, phase } = state;
-  const isHumanTurn = currentPlayerIdx === 0;
+  const isHumanTurn = ['play','cabo'].includes(phase) && currentPlayerIdx === 0 && step === 'idle';
   const pileTop = pile.length > 0 ? pile[pile.length - 1] : null;
   const opponents = players.filter((_, i) => i !== 0);
+
+  const [timeLeft, setTimeLeft] = useState(40);
+
+  useEffect(() => {
+    if (!isHumanTurn) { setTimeLeft(40); return; }
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) { clearInterval(timer); dispatch({ type: 'SKIP_TURN' }); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isHumanTurn, dispatch]);
+
+  useEffect(() => {
+    if (!['play','cabo'].includes(phase)) return;
+    const p = players[currentPlayerIdx];
+    if (!p?.isAI) return;
+    let timer;
+    if (step === 'idle') timer = setTimeout(() => dispatch({ type: 'BOT_START' }), 1200);
+    else if (step === 'bot_draw' || step === 'bot_cabo') timer = setTimeout(() => dispatch({ type: 'BOT_DRAW' }), 1500);
+    else if (step === 'bot_action') timer = setTimeout(() => dispatch({ type: 'BOT_ACTION' }), 2000);
+    else if (step === 'bot_end') timer = setTimeout(() => dispatch({ type: 'BOT_END' }), 1800);
+    return () => clearTimeout(timer);
+  }, [phase, currentPlayerIdx, step, dispatch, players]);
 
   const revFor = (pIdx) => reveals.filter(r => r.playerIdx === pIdx);
 
@@ -915,6 +1048,12 @@ function GameBoard({ state, dispatch }) {
               selectables={getSelectables(opp.id)}
               revealed={revFor(opp.id)}
               onCardClick={(cIdx) => handleOppCard(opp.id, cIdx)}
+              botTargets={
+                (opp.isAI && opp.id === currentPlayerIdx && ctx.botSwap !== undefined) ? [ctx.botSwap] :
+                (opp.isAI && opp.id === currentPlayerIdx && ctx.botPeek !== undefined) ? [ctx.botPeek] :
+                (opp.isAI && opp.id === currentPlayerIdx && ctx.botBlindSwapOwn !== undefined) ? [ctx.botBlindSwapOwn] :
+                (!opp.isAI && ctx.botBlindSwapOpp === opp.id && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
+              }
             />
           ))}
         </div>
@@ -971,11 +1110,15 @@ function GameBoard({ state, dispatch }) {
             </div>
           </div>
 
-          {/* Action Panel */}
+          {/* Action / Msg */}
           <div className="action-panel">
             <div className="msg-box">{msg}</div>
             {isHumanTurn && (
-              <div className="action-btns">
+               <div className="timer-wrap">
+                 <div className="timer-bar" style={{ width: `${(timeLeft / 40) * 100}%` }} />
+               </div>
+            )}
+            <div className="action-btns">
                 {/* swap: discard option */}
                 {step === 'swap' && drawn?.from !== 'pile' && (
                   <button className="btn btn-danger" id="discard-btn" onClick={() => dispatch({ type: 'DISCARD_DRAWN' })}>
@@ -1006,13 +1149,12 @@ function GameBoard({ state, dispatch }) {
                     </button>
                   </>
                 )}
-              </div>
-            )}
+            </div>
           </div>
         </div>
 
-        {/* Your Hand */}
-        <div className="your-area">
+        {/* Bottom (You) */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
           <PlayerArea
             player={players[0]}
             isActive={currentPlayerIdx === 0}
@@ -1020,6 +1162,9 @@ function GameBoard({ state, dispatch }) {
             selectables={getSelectables(0)}
             revealed={revFor(0)}
             onCardClick={handleHumanCard}
+            botTargets={
+              (ctx.botBlindSwapOpp === 0 && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
+            }
           />
         </div>
       </div>

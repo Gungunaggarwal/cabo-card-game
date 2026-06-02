@@ -956,7 +956,8 @@ function RevealScreen({ state, dispatch }) {
 // ─────────────────────────────────────────────
 function GameBoard({ state, dispatch }) {
   const { players, deck, pile, currentPlayerIdx, drawn, step, ctx, caboBy, reveals, msg, phase } = state;
-  const isHumanTurn = ['play','cabo'].includes(phase) && currentPlayerIdx === 0 && step === 'idle';
+  const isHumanActive = ['play','cabo'].includes(phase) && currentPlayerIdx === 0;
+  const isHumanTurn = isHumanActive && step === 'idle';
   const pileTop = pile.length > 0 ? pile[pile.length - 1] : null;
   const opponents = players.filter((_, i) => i !== 0);
 
@@ -989,7 +990,7 @@ function GameBoard({ state, dispatch }) {
 
   // Which cards are selectable for a given player index
   const getSelectables = (pIdx) => {
-    if (!isHumanTurn) return [];
+    if (!isHumanActive) return [];
     if (pIdx === 0) {
       if (['swap','king_sel'].includes(step)) return [0,1,2,3,4,5];
       if (step === 'peekOwn') return players[0].known.map((k,i) => !k ? i : null).filter(x => x !== null);

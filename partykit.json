@@ -1,0 +1,4 @@
+{
+  "name": "cabogame",
+  "main": "party/server.js"
+}

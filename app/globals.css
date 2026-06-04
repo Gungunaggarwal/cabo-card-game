@@ -847,125 +847,145 @@ body {
 
 /* ===================================================================
    MOBILE RESPONSIVE  (≤ 768px)
+   Full portrait reflow: top-opp → center piles → your hand → actions
    =================================================================== */
 @media (max-width: 768px) {
 
-  /* Allow full-page scroll on mobile */
-  html, body { overflow-y: auto; height: auto; }
-  .game-root { height: auto; min-height: 100dvh; overflow-y: auto; }
-  .game-layout { flex-direction: column; overflow-y: auto; height: auto; }
-  .game-main { overflow-y: visible; align-items: flex-start; }
+  /* ── Scrolling ── */
+  html, body { overflow-x: hidden; overflow-y: auto; height: auto; }
+  .game-root  { height: auto; min-height: 100dvh; overflow-y: auto; }
+  .game-layout { flex-direction: column; overflow: visible; height: auto; }
+  .game-main   { overflow: visible; align-items: flex-start;
+                 min-height: auto; height: auto; display: block; }
 
-  /* Hide sidebar on mobile */
+  /* ── Hide sidebar; show nowhere ── */
   .game-sidebar { display: none; }
+  /* Move chat to bottom drawer */
+  .sidebar-chat {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    width: 100%; height: 230px; border-radius: 16px 16px 0 0;
+    z-index: 300;
+    transform: translateY(182px);
+    transition: transform 0.3s ease;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.6);
+  }
+  .sidebar-chat:focus-within { transform: translateY(0); }
 
-  /* Top bar compact */
-  .game-top-bar { height: 50px; padding: 0 12px; }
-  .top-left, .top-right { width: auto; gap: 8px; }
-  .top-logo { font-size: 18px; letter-spacing: 1px; }
-  .top-user img { width: 28px; height: 28px; }
-  .top-icon-btn { font-size: 16px; }
+  /* ── Top bar compact ── */
+  .game-top-bar { height: 48px; padding: 0 10px; }
+  .top-left, .top-right { width: auto; gap: 6px; }
+  .top-logo { font-size: 16px; letter-spacing: 0.5px; }
+  .top-user img { width: 26px; height: 26px; }
+  .top-icon-btn { font-size: 15px; }
 
-  /* Game board stacks vertically */
+  /* ── Game board: single-column flex instead of grid ── */
   .game-board-area {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto auto auto;
-    max-height: none;
-    height: auto;
-    padding: 12px 8px;
-    gap: 8px;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    padding: 10px 8px 100px; /* bottom padding so action bar doesn't cover cards */
+    gap: 12px;
+    height: auto; max-height: none;
   }
 
-  .pos-top    { grid-column: 1; grid-row: 1; }
-  .pos-left   { display: none; } /* hide side players on tiny screens */
-  .pos-right  { display: none; }
-  .center-zone-wrapper { grid-column: 1; grid-row: 2; }
-  .pos-bottom { grid-column: 1; grid-row: 3; align-items: center; }
+  /* Each wrapper becomes full-width block */
+  .player-wrapper { width: 100%; justify-content: center; }
+  .pos-left, .pos-right { display: none; }
 
-  /* Smaller cards on mobile */
-  .card-wrap { width: 52px; height: 78px; }
-  .card-wrap.sm { width: 44px; height: 66px; }
+  /* ── Player areas ── */
+  .player-area {
+    flex-direction: column !important;
+    align-items: center;
+    gap: 8px;
+  }
+  .player-info { flex-direction: row; gap: 10px; align-items: center; }
+
+  /* Hand is always horizontal and wraps */
+  .hand-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px !important;
+  }
+  /* Cancel desktop rotation effects */
+  .hand-slot { transform: none !important; }
+
+  /* ── Card sizes ── */
+  .card-wrap { width: 50px; height: 75px; }
+  .card-wrap.sm { width: 42px; height: 63px; }
   .card-rank { font-size: 11px; }
   .card-suit-sm { font-size: 9px; }
   .card-suit-lg { font-size: 22px; }
   .card-corner.tl { top: 3px; left: 4px; }
   .card-corner.br { bottom: 3px; right: 4px; }
 
-  /* Hand grids smaller */
-  .hand-grid { gap: 4px; flex-wrap: wrap; justify-content: center; }
-  .pos-top .hand-grid { gap: 4px; }
-  .pos-bottom .hand-grid { gap: 4px; }
-  /* No rotation on mobile */
-  .pos-left .hand-slot, .pos-right .hand-slot { transform: none; }
+  /* ── Center panel compact ── */
+  .center-zone-wrapper { width: 100%; }
+  .center-panel { padding: 10px 14px; }
+  .deck-pile-row { gap: 10px; justify-content: center; }
+  .center-header { font-size: 9px; }
+  .msg-box-mock { font-size: 12px; text-align: center; width: 100%; }
 
-  /* Center panel compact */
-  .center-panel { padding: 12px 16px; }
-  .deck-pile-row { gap: 12px; }
-  .center-header { font-size: 10px; }
-
-  /* Move action buttons to bottom as a row */
+  /* ── Action buttons: fixed bottom bar ── */
   .bottom-right-actions {
-    position: static;
+    position: fixed !important;
+    bottom: 0; left: 0; right: 0;
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
-    gap: 8px;
-    padding: 12px 8px;
-    width: 100%;
+    gap: 6px;
+    padding: 8px 8px;
+    background: rgba(12,18,28,0.97);
+    border-top: 1px solid var(--border);
+    z-index: 200;
+    backdrop-filter: blur(10px);
   }
   .action-btn {
-    padding: 10px 14px;
-    font-size: 11px;
     flex: 1;
-    min-width: 100px;
+    padding: 10px 4px;
+    font-size: 9px;
+    letter-spacing: 0;
     text-align: center;
     justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  /* Dynamic panel also goes static */
+  /* ── Dynamic action panel: static centered row ── */
   .dynamic-action-panel {
-    position: static;
+    position: static !important;
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: center;
     gap: 8px;
-    padding: 8px;
+    padding: 6px 8px;
     width: 100%;
   }
 
-  /* Bottom card actions not absolutely positioned */
+  /* ── Bottom card quick-actions ── */
   .bottom-card-actions {
-    position: static;
-    transform: none;
+    position: static !important;
+    transform: none !important;
     justify-content: center;
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
-  /* Msg box full width */
-  .msg-box-mock { font-size: 12px; text-align: center; }
+  /* ── Cabo alert ── */
+  .cabo-alert { font-size: 10px; }
 
-  /* Chat box floats from bottom on mobile */
-  .sidebar-chat {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    width: 100%; height: 220px;
-    border-radius: 16px 16px 0 0;
-    z-index: 200;
-    transform: translateY(170px);
-    transition: transform 0.3s ease;
-  }
-  .sidebar-chat:focus-within { transform: translateY(0); }
+  /* ── Lobby ── */
+  .lobby-card { padding: 24px 16px; }
+  .lobby-brand h1 { font-size: 38px; }
 
-  /* Lobby responsive */
-  .lobby-card { padding: 28px 20px; }
-  .lobby-brand h1 { font-size: 40px; }
+  /* ── Peek overlay ── */
+  .peek-panel { padding: 18px 14px; }
+  .peek-grid { gap: 5px; flex-wrap: wrap; justify-content: center; }
 
-  /* Peek panel compact */
-  .peek-panel { padding: 20px 16px; }
-  .peek-grid { gap: 6px; }
-
-  /* Reveal panel */
-  .reveal-panel { padding: 24px 16px; }
+  /* ── Reveal ── */
+  .reveal-panel { padding: 20px 14px; }
   .score-cards-row { gap: 4px; }
 }
 
@@ -973,6 +993,8 @@ body {
 @media (max-width: 480px) {
   .card-wrap { width: 44px; height: 66px; }
   .card-wrap.sm { width: 36px; height: 54px; }
-  .lobby-card { padding: 20px 14px; }
-  .action-btn { font-size: 10px; padding: 8px 10px; }
+  .card-suit-lg { font-size: 18px; }
+  .lobby-card { padding: 18px 12px; }
+  .action-btn { font-size: 8px; }
+  .deck-pile-row { gap: 8px; }
 }

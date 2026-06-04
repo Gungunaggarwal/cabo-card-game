@@ -9,6 +9,13 @@ export const metadata = {
   description: 'A memory-based card game. Get the lowest score to win!',
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
+
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${inter.variable} ${caveat.variable}`}>

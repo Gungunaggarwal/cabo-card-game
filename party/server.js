@@ -64,7 +64,14 @@ export default class CaboServer {
         }
       );
       this.roomPhase = 'playing';
-      this._broadcast({ type: 'STATE', state: this.gameState });
+      this._broadcastState();
+      return;
+    }
+
+    if (msg.type === 'CHAT_MESSAGE') {
+      const colors = ['blue', 'green', 'gold', 'red'];
+      const color = colors[info.slot % colors.length];
+      this._broadcast({ type: 'CHAT_MESSAGE', name: msg.name, text: msg.text, color });
       return;
     }
 
@@ -91,7 +98,7 @@ export default class CaboServer {
         this.roomPhase = 'waiting';
         this._broadcastRoomUpdate();
       } else {
-        this._broadcast({ type: 'STATE', state: this.gameState });
+        this._broadcastState();
       }
       return;
     }
@@ -117,6 +124,35 @@ export default class CaboServer {
       players: this._playerList(),
       playerCount: this.connections.size,
     });
+  }
+
+  _broadcastState() {
+    if (!this.gameState) return;
+    for (const [id, info] of this.connections) {
+      const conn = this.room.getConnection(id);
+      if (!conn) continue;
+      const masked = this._maskState(this.gameState, info.slot);
+      conn.send(JSON.stringify({ type: 'STATE', state: masked }));
+    }
+  }
+
+  _maskState(state, mySlot) {
+    // Hide opponent cards (unless revealed)
+    const players = state.players.map((p, i) => {
+      if (i === mySlot) return p;
+      return {
+        ...p,
+        hand: p.hand.map((card, cIdx) => {
+          const isRevealed = state.reveals?.some(r => r.playerIdx === i && r.cardIdx === cIdx);
+          const isGameOver = state.phase === 'reveal';
+          if (isRevealed || isGameOver) return card;
+          // Mask the card rank and suit so network inspect doesn't leak values
+          return { id: card.id, rank: '?', suit: '?' };
+        })
+      };
+    });
+    // Mask deck cards (except top card maybe?)
+    return { ...state, players };
   }
 
   _broadcast(msg) {

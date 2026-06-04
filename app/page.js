@@ -30,6 +30,7 @@ function CardComp({ card, faceUp, onClick, selected, sm, botTarget }) {
   const red = isRed(card);
   const joker = card?.rank === 'JOKER';
   const cls = ['card-wrap', sm && 'sm', onClick && 'clickable', selected && 'selected', botTarget && 'bot-target'].filter(Boolean).join(' ');
+  
   return (
     <div className={cls} onClick={onClick}>
       <div className={`card-inner${faceUp ? ' face-up' : ''}`}>
@@ -63,30 +64,49 @@ function CardComp({ card, faceUp, onClick, selected, sm, botTarget }) {
 // ─────────────────────────────────────────────
 // PLAYER AREA
 // ─────────────────────────────────────────────
-function PlayerArea({ player, isActive, isCabo, onCardClick, selectables, revealed, sm, botTargets }) {
+function PlayerArea({ player, isActive, isCabo, onCardClick, selectables, revealed, sm, botTargets, position = 'top', isMe = false }) {
   const revSet = new Set((revealed || []).map(r => r.cardIdx));
-  const cls = ['player-area', isActive && 'is-active', isCabo && 'cabo-caller'].filter(Boolean).join(' ');
+  const cls = ['player-area', `pos-${position}`, isActive && 'is-active', isCabo && 'cabo-caller'].filter(Boolean).join(' ');
+  
   return (
     <div className={cls}>
       <div className="player-info">
-        {isActive && <div className="turn-dot" />}
-        <span className="player-name">{player.name}</span>
-        {player.score !== null && <span className="player-score-badge">{player.score} pts</span>}
+        <div className="player-avatar-wrap">
+          {isActive && position !== 'bottom' && <div className="avatar-glow" />}
+          <div className="player-avatar">
+            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}&backgroundColor=b6e3f4`} alt="avatar" />
+          </div>
+        </div>
+        <div className="player-details">
+          <span className="player-name">{player.name}</span>
+          {player.score !== null ? (
+            <span className="player-score-badge">{player.score}</span>
+          ) : (
+            <span className="player-score-badge placeholder">--</span>
+          )}
+        </div>
+        {isActive && position !== 'bottom' && (
+          <div className="turn-timer">
+            <div className="timer-bar-mini" />
+            <div className="timer-text">{player.name}'s Turn...</div>
+          </div>
+        )}
       </div>
       <div className="hand-grid">
         {player.hand.map((card, idx) => {
           const faceUp = player.score !== null || revSet.has(idx);
           const selectable = selectables?.includes(idx);
           return (
-            <CardComp
-              key={card.id ?? idx}
-              card={card}
-              faceUp={faceUp}
-              sm={sm}
-              selected={selectable}
-              botTarget={botTargets?.includes(idx)}
-              onClick={selectable ? () => onCardClick(idx) : undefined}
-            />
+            <div key={card.id ?? idx} className={`hand-slot slot-${idx}`}>
+              <CardComp
+                card={card}
+                faceUp={faceUp}
+                sm={sm}
+                selected={selectable}
+                botTarget={botTargets?.includes(idx)}
+                onClick={selectable ? () => onCardClick(idx) : undefined}
+              />
+            </div>
           );
         })}
       </div>
@@ -548,7 +568,7 @@ function RevealScreen({ state, dispatch }) {
 // ─────────────────────────────────────────────
 // GAME BOARD
 // ─────────────────────────────────────────────
-function GameBoard({ state, dispatch, mySlot = 0 }) {
+function GameBoard({ state, dispatch, mySlot = 0, chatMessages = [], chatInput = '', setChatInput, sendChatMessage }) {
   const { players, deck, pile, currentPlayerIdx, drawn, step, ctx, caboBy, reveals, msg, phase } = state;
   const isHumanActive = ['play','cabo'].includes(phase) && currentPlayerIdx === mySlot;
   const isHumanTurn = isHumanActive && step === 'idle';
@@ -588,21 +608,39 @@ function GameBoard({ state, dispatch, mySlot = 0 }) {
 
   const revFor = (pIdx) => safeReveals.filter(r => r.playerIdx === pIdx);
 
+  const getPos = (id) => {
+    const total = players.length;
+    const offset = (id - mySlot + total) % total;
+    if (total === 2) {
+      if (offset === 1) return 'top';
+    } else if (total === 3) {
+      if (offset === 1) return 'left';
+      if (offset === 2) return 'right';
+    } else if (total === 4) {
+      if (offset === 1) return 'left';
+      if (offset === 2) return 'top';
+      if (offset === 3) return 'right';
+    }
+    return 'top';
+  };
+
   const getSelectables = (pIdx) => {
     if (!isHumanActive) return [];
     if (pIdx === mySlot) {
-      if (['swap','king_sel'].includes(step)) return [0,1,2,3,4,5];
+      if (step === 'idle') return players[mySlot].hand.map((_, i) => i); // Match discard
+      if (['swap','king_sel'].includes(step)) return players[mySlot].hand.map((_, i) => i);
       if (step === 'peekOwn') return players[mySlot].known.map((k,i) => !k ? i : null).filter(x => x !== null);
-      if (step === 'bSwap_own') return [0,1,2,3,4,5];
-      if (step === 'sSwap_own') return [0,1,2,3,4,5];
+      if (step === 'bSwap_own') return players[mySlot].hand.map((_, i) => i);
+      if (step === 'sSwap_own') return players[mySlot].hand.map((_, i) => i);
     } else {
-      if (['peekOpp_sel','bSwap_opp','sSwap_opp'].includes(step)) return [0,1,2,3,4,5];
+      if (['peekOpp_sel','bSwap_opp','sSwap_opp'].includes(step)) return players[pIdx].hand.map((_, i) => i);
     }
     return [];
   };
 
   const handleHumanCard = (cardIdx) => {
-    if (step === 'swap' || step === 'king_sel') dispatch({ type: 'SWAP_WITH_HAND', payload: { cardIdx } });
+    if (step === 'idle') dispatch({ type: 'MATCH_DISCARD', payload: { cardIdx } });
+    else if (step === 'swap' || step === 'king_sel') dispatch({ type: 'SWAP_WITH_HAND', payload: { cardIdx } });
     else if (step === 'peekOwn') dispatch({ type: 'PEEK_OWN_SELECT', payload: { cardIdx } });
     else if (step === 'bSwap_own') dispatch({ type: 'BSWAP_OWN', payload: { cardIdx } });
     else if (step === 'sSwap_own') dispatch({ type: 'SSWAP_OWN', payload: { cardIdx } });
@@ -616,115 +654,193 @@ function GameBoard({ state, dispatch, mySlot = 0 }) {
 
   return (
     <div className="game-root">
-      <div className="game-header">
-        <div><div className="game-title">CABO</div></div>
-        <div className="header-right">
-          {phase === 'cabo' && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--crimson)', background: 'rgba(230,57,70,0.12)', padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(230,57,70,0.3)' }}>
-              🔴 LAST ROUND
-            </span>
-          )}
-          {isHumanTurn && step === 'idle' && caboBy === null && (
-            <button className="btn btn-purple" id="cabo-btn" onClick={() => dispatch({ type: 'CALL_CABO' })}>
-              📣 Call CABO
-            </button>
-          )}
-          <div className="deck-info">🂠 {deck.length} left</div>
+      {/* ── TOP HEADER ── */}
+      <div className="game-top-bar">
+        <div className="top-left">
+          <div className="top-user">
+            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${players[mySlot]?.name}&backgroundColor=b6e3f4`} alt="Me" />
+          </div>
+        </div>
+        <div className="top-center">
+          <div className="top-logo">
+            <span className="logo-icon">🎴</span> CABO
+          </div>
+        </div>
+        <div className="top-right">
+          <button className="top-icon-btn">👤</button>
+          <button className="top-icon-btn badge-btn">🔔<span className="badge">3</span></button>
+          <button className="top-icon-btn">⚙️</button>
         </div>
       </div>
 
-      <div className="game-body">
-        <div className="opponents-row">
-          {opponents.map(opp => (
-            <PlayerArea
-              key={opp.id}
-              player={opp}
-              isActive={currentPlayerIdx === opp.id}
-              isCabo={caboBy === opp.id}
-              selectables={getSelectables(opp.id)}
-              revealed={revFor(opp.id)}
-              onCardClick={(cIdx) => handleOppCard(opp.id, cIdx)}
-              botTargets={
-                (opp.isAI && opp.id === currentPlayerIdx && ctx.botSwap !== undefined) ? [ctx.botSwap] :
-                (opp.isAI && opp.id === currentPlayerIdx && ctx.botPeek !== undefined) ? [ctx.botPeek] :
-                (opp.isAI && opp.id === currentPlayerIdx && ctx.botBlindSwapOwn !== undefined) ? [ctx.botBlindSwapOwn] :
-                (!opp.isAI && ctx.botBlindSwapOpp === opp.id && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
-              }
-            />
-          ))}
-        </div>
-
-        <div className="center-zone">
-          <div className="deck-pile-row">
-            <div className="deck-pile-col">
-              {deck.length > 0 ? (
-                <div onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_DECK' }) : undefined} style={{ cursor: isHumanTurn && step === 'idle' ? 'pointer' : 'default' }}>
-                  <CardComp card={deck[0]} faceUp={false} onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_DECK' }) : undefined} />
-                </div>
-              ) : <div className="empty-card">Empty</div>}
-              <div className="pile-label">Draw Deck</div>
-            </div>
-
-            {drawn && (
-              <div className="drawn-display anim-in">
-                <div className="drawn-label">⚡ Just Drew</div>
-                <CardComp card={drawn.card} faceUp />
-              </div>
-            )}
-            {!drawn && <div className="center-sep" />}
-
-            <div className="deck-pile-col">
-              {pileTop ? (
-                <div onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_PILE' }) : undefined} style={{ cursor: isHumanTurn && step === 'idle' ? 'pointer' : 'default' }}>
-                  <CardComp card={pileTop} faceUp onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_PILE' }) : undefined} />
-                </div>
-              ) : <div className="empty-card">Empty</div>}
-              <div className="pile-label">Discard Pile</div>
-            </div>
+      <div className="game-layout">
+        {/* ── LEFT SIDEBAR ── */}
+        <div className="game-sidebar">
+          <div className="sidebar-nav">
+            <button className="side-icon-btn active">▦</button>
+            <button className="side-icon-btn">👥</button>
+            <button className="side-icon-btn">❓</button>
           </div>
-
-          <div className="action-panel">
-            <div className="msg-box">{msg}</div>
-            {isHumanTurn && (
-              <div className="timer-wrap">
-                <div className="timer-bar" style={{ width: `${(timeLeft / 40) * 100}%` }} />
-              </div>
-            )}
-            <div className="action-btns">
-              {step === 'swap' && drawn?.from !== 'pile' && (
-                <button className="btn btn-danger" id="discard-btn" onClick={() => dispatch({ type: 'DISCARD_DRAWN' })}>🗑 Discard It</button>
-              )}
-              {step === 'king' && (
-                <>
-                  <button className="btn btn-teal" onClick={() => dispatch({ type: 'KING_KEEP' })}>Keep King →</button>
-                  <button className="btn btn-danger" onClick={() => dispatch({ type: 'KING_DISCARD' })}>🗑 Discard</button>
-                </>
-              )}
-              {(step === 'peekReveal' || step === 'oppPeekReveal') && (
-                <button className="btn btn-gold" onClick={() => dispatch({ type: 'END_PEEK_REVEAL' })}>Got it! ✓</button>
-              )}
-              {step === 'sSwap_confirm' && (
-                <>
-                  <button className="btn btn-green" onClick={() => dispatch({ type: 'SSWAP_CONFIRM', payload: { doSwap: true } })}>✅ Swap Cards</button>
-                  <button className="btn btn-ghost" onClick={() => dispatch({ type: 'SSWAP_CONFIRM', payload: { doSwap: false } })}>✗ Don't Swap</button>
-                </>
-              )}
+          
+          <div className="sidebar-chat">
+            <div className="chat-header">
+              <span>Chat</span>
+              <div className="chat-actions"><span>💬</span></div>
             </div>
+            <div className="chat-messages">
+              {chatMessages.length === 0 && <div className="chat-msg" style={{color: '#666'}}>No messages yet...</div>}
+              {chatMessages.map((msg, i) => (
+                <div key={i} className="chat-msg"><span className={`chat-name ${msg.color}`}>{msg.name}:</span> {msg.text}</div>
+              ))}
+            </div>
+            <form className="chat-input-box" onSubmit={sendChatMessage}>
+              <input type="text" placeholder="Type here..." value={chatInput} onChange={e => setChatInput(e.target.value)} />
+              <button type="submit">➤</button>
+            </form>
+          </div>
+          
+          <div className="sidebar-bottom">
+            <button className="side-icon-btn badge-btn">🔔<span className="badge">3</span></button>
+            <button className="side-icon-btn">❓</button>
+            <button className="side-icon-btn">⚙️</button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <PlayerArea
-            player={players[mySlot]}
-            isActive={currentPlayerIdx === mySlot}
-            isCabo={caboBy === mySlot}
-            selectables={getSelectables(mySlot)}
-            revealed={revFor(mySlot)}
-            onCardClick={handleHumanCard}
-            botTargets={
-              (ctx.botBlindSwapOpp === mySlot && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
-            }
-          />
+        {/* ── MAIN GAME BOARD ── */}
+        <div className="game-main">
+          {phase === 'cabo' && (
+            <div className="cabo-alert">🔴 LAST ROUND</div>
+          )}
+
+          <div className="game-board-area">
+            {/* Opponents */}
+            {opponents.map(opp => {
+              const pos = getPos(opp.id);
+              return (
+                <div key={opp.id} className={`player-wrapper pos-${pos}`}>
+                  <PlayerArea
+                    player={opp}
+                    isActive={currentPlayerIdx === opp.id}
+                    isCabo={caboBy === opp.id}
+                    selectables={getSelectables(opp.id)}
+                    revealed={revFor(opp.id)}
+                    onCardClick={(cIdx) => handleOppCard(opp.id, cIdx)}
+                    position={pos}
+                    botTargets={
+                      (opp.isAI && opp.id === currentPlayerIdx && ctx.botSwap !== undefined) ? [ctx.botSwap] :
+                      (opp.isAI && opp.id === currentPlayerIdx && ctx.botPeek !== undefined) ? [ctx.botPeek] :
+                      (opp.isAI && opp.id === currentPlayerIdx && ctx.botBlindSwapOwn !== undefined) ? [ctx.botBlindSwapOwn] :
+                      (!opp.isAI && ctx.botBlindSwapOpp === opp.id && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
+                    }
+                  />
+                </div>
+              );
+            })}
+
+            {/* Center Zone */}
+            <div className="center-zone-wrapper">
+              <div className="center-panel">
+                <div className="center-header">ROUND 3 | TURN 11</div>
+                <div className="deck-pile-row">
+                  <div className="deck-pile-col">
+                    {deck.length > 0 ? (
+                      <div onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_DECK' }) : undefined} style={{ cursor: isHumanTurn && step === 'idle' ? 'pointer' : 'default' }}>
+                        <CardComp card={deck[0]} faceUp={false} onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_DECK' }) : undefined} />
+                      </div>
+                    ) : <div className="empty-card">Empty</div>}
+                    <div className="pile-label">Draw Pile</div>
+                  </div>
+
+                  {drawn && (
+                    <div className="drawn-display anim-in">
+                      <div className="drawn-label">⚡ Just Drew</div>
+                      <CardComp card={drawn.card} faceUp />
+                    </div>
+                  )}
+                  {!drawn && <div className="center-sep" />}
+
+                  <div className="deck-pile-col">
+                    {pileTop ? (
+                      <div onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_PILE' }) : undefined} style={{ cursor: isHumanTurn && step === 'idle' ? 'pointer' : 'default' }}>
+                        <CardComp card={pileTop} faceUp onClick={isHumanTurn && step === 'idle' ? () => dispatch({ type: 'DRAW_PILE' }) : undefined} />
+                      </div>
+                    ) : <div className="empty-card">Empty</div>}
+                    <div className="pile-label">Discard Pile</div>
+                  </div>
+                </div>
+              </div>
+              <div className="msg-box-mock">{msg || 'Game Started'}</div>
+            </div>
+
+            {/* Bottom Player (You) */}
+            <div className="player-wrapper pos-bottom">
+              <PlayerArea
+                player={players[mySlot]}
+                isActive={currentPlayerIdx === mySlot}
+                isCabo={caboBy === mySlot}
+                selectables={getSelectables(mySlot)}
+                revealed={revFor(mySlot)}
+                onCardClick={handleHumanCard}
+                position="bottom"
+                isMe={true}
+                botTargets={
+                  (ctx.botBlindSwapOpp === mySlot && ctx.botBlindSwapOppCard !== undefined) ? [ctx.botBlindSwapOppCard] : []
+                }
+              />
+              
+              {/* Peek/Swap/Spy Actions */}
+              <div className="bottom-card-actions">
+                <button className="card-action-btn"><span className="icon">👁️</span>Peek</button>
+                <button className="card-action-btn"><span className="icon">🔄</span>Swap</button>
+                <button className="card-action-btn active-spy"><span className="icon">👁️‍🗨️</span>Spy</button>
+              </div>
+            </div>
+            
+            {/* Dynamic Actions for game state */}
+            {isHumanActive && step !== 'idle' && (
+              <div className="dynamic-action-panel">
+                {step === 'swap' && drawn?.from !== 'pile' && (
+                  <button className="btn btn-danger" onClick={() => dispatch({ type: 'DISCARD_DRAWN' })}>🗑 Discard Drawn Card</button>
+                )}
+                {step === 'king' && (
+                  <>
+                    <button className="btn btn-teal" onClick={() => dispatch({ type: 'KING_KEEP' })}>Keep King</button>
+                    <button className="btn btn-danger" onClick={() => dispatch({ type: 'KING_DISCARD' })}>Discard King</button>
+                  </>
+                )}
+                {(step === 'peekReveal' || step === 'oppPeekReveal') && (
+                  <button className="btn btn-gold" onClick={() => dispatch({ type: 'END_PEEK_REVEAL' })}>Done Peeking ✓</button>
+                )}
+                {step === 'sSwap_confirm' && (
+                  <>
+                    <button className="btn btn-green" onClick={() => dispatch({ type: 'SSWAP_CONFIRM', payload: { doSwap: true } })}>✅ Confirm Swap</button>
+                    <button className="btn btn-ghost" onClick={() => dispatch({ type: 'SSWAP_CONFIRM', payload: { doSwap: false } })}>✗ Cancel Swap</button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Right Actions */}
+          <div className="bottom-right-actions">
+            {isHumanTurn && step === 'idle' ? (
+               <button className="action-btn neon-blue" onClick={() => dispatch({ type: 'DRAW_DECK' })}>DRAW FROM PILE</button>
+            ) : (
+               <button className="action-btn neon-blue disabled">DRAW FROM PILE</button>
+            )}
+            
+            {isHumanTurn && step === 'idle' && pileTop ? (
+               <button className="action-btn neon-blue" onClick={() => dispatch({ type: 'DRAW_PILE' })}>TAKE FROM DISCARD ({pileTop.rank}{pileTop.suit})</button>
+            ) : (
+               <button className="action-btn neon-blue disabled">TAKE FROM DISCARD</button>
+            )}
+
+            {isHumanTurn && step === 'idle' && caboBy === null ? (
+               <button className="action-btn neon-red" onClick={() => dispatch({ type: 'CALL_CABO' })}>CABO!</button>
+            ) : (
+               <button className="action-btn neon-red disabled">CABO!</button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -750,6 +866,8 @@ export default function Home() {
   const [mpState, setMpState] = useState(null);
   const [mpPlayerLeft, setMpPlayerLeft] = useState(false);
   const [mpPlayerName, setMpPlayerName] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
   const socketRef = useRef(null);
 
   const mpDispatch = useCallback((action) => {
@@ -794,6 +912,9 @@ export default function Home() {
       if (msg.type === 'PLAYER_LEFT') {
         setMpPlayerLeft(true);
       }
+      if (msg.type === 'CHAT_MESSAGE') {
+        setChatMessages(prev => [...prev, { name: msg.name, text: msg.text, color: msg.color }]);
+      }
     });
 
     socket.addEventListener('close', () => {
@@ -816,6 +937,19 @@ export default function Home() {
   const startMpGame = useCallback(() => {
     socketRef.current?.send(JSON.stringify({ type: 'START_GAME', rules: DEFAULT_RULES }));
   }, []);
+
+  const sendChatMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const fallbackName = state.players?.[0]?.name || 'You';
+    const msg = { type: 'CHAT_MESSAGE', name: isMultiplayer ? mpPlayerName : fallbackName, text: chatInput.trim(), color: 'blue' };
+    if (isMultiplayer) {
+      socketRef.current?.send(JSON.stringify(msg));
+    } else {
+      setChatMessages(prev => [...prev, msg]);
+    }
+    setChatInput('');
+  };
 
   // Determine active state and dispatch
   const isMultiplayer = onlineMode && mpConnected && mpRoomPhase === 'playing' && mpState;
@@ -893,5 +1027,5 @@ export default function Home() {
   if (activeState.phase === 'game_intro') return <GameIntroScreen dispatch={activeDispatch} />;
   if (activeState.phase === 'reveal') return <RevealScreen state={activeState} dispatch={activeDispatch} />;
 
-  return <GameBoard state={activeState} dispatch={activeDispatch} mySlot={isMultiplayer ? mySlot : 0} />;
+  return <GameBoard state={activeState} dispatch={activeDispatch} mySlot={isMultiplayer ? mySlot : 0} chatMessages={chatMessages} chatInput={chatInput} setChatInput={setChatInput} sendChatMessage={sendChatMessage} />;
 }

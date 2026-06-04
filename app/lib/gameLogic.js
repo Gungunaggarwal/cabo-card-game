@@ -226,6 +226,34 @@ export function reducer(state, action) {
       return endTurn({ ...state, pile: [...state.pile, state.drawn.card], drawn: null });
     }
 
+    case 'MATCH_DISCARD': {
+      if (state.step !== 'idle' || !['play','cabo'].includes(state.phase)) return state;
+      const { cardIdx } = payload;
+      const players = cp(state.players);
+      const player = players[state.currentPlayerIdx];
+      const card = player.hand[cardIdx];
+      const topCard = state.pile.length > 0 ? state.pile[state.pile.length - 1] : null;
+      
+      if (topCard && (card.rank === topCard.rank || cardValue(card) === cardValue(topCard))) {
+        // Match successful! Remove card from hand
+        player.hand.splice(cardIdx, 1);
+        player.known.splice(cardIdx, 1);
+        return endTurn({
+          ...state,
+          players,
+          pile: [...state.pile, card],
+          msg: `Match successful! Discarded ${card.rank}${card.suit||''}.`
+        });
+      } else {
+        // Penalty for wrong match (usually draw a card, but let's just warn and end turn or something)
+        // A simple penalty: you must keep it, turn ends.
+        return {
+          ...state,
+          msg: `❌ Not a match! ${card.rank}${card.suit||''} doesn't match ${topCard ? topCard.rank : 'nothing'}. Turn lost.`,
+        };
+      }
+    }
+
     case 'SWAP_WITH_HAND': {
       if (!state.drawn || !['swap','king_sel'].includes(state.step)) return state;
       return swapHandCard(state, state.drawn.card, state.currentPlayerIdx, payload.cardIdx);
